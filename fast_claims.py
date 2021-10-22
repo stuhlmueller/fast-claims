@@ -1,6 +1,4 @@
 import asyncio
-import aiohttp
-import nest_asyncio
 import os
 import streamlit as st
 import spacy
@@ -36,7 +34,7 @@ def get_msmarco_encoder():
 
 @st.experimental_singleton
 def get_spacy_nlp():
-    return spacy.load("en_core_web_lg")
+    return spacy.load("en_core_web_sm")
 
 
 msmarco_encoder = get_msmarco_encoder()
