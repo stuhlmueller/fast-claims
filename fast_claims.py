@@ -141,7 +141,7 @@ def compress_claim_text_instruct(question, claim_text):
 
 
 def compress_claim_text_t5(question, claim_text):
-    return t5_oneline_summary.predict(claim_text)
+    return t5_oneline_summary.predict(claim_text)[0]
 
 
 def compress_claim(question, claim, model):
@@ -226,6 +226,7 @@ def main():
             "curie:ft-ought-1-2021-10-22-00-52-45",
             "babbage:ft-ought-1-2021-10-22-01-05-15",
             "ada:ft-ought-1-2021-10-22-00-42-58",
+            "t5-one-line-summary"
         ],
     )
 
