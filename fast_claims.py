@@ -5,6 +5,7 @@ import spacy
 import openai
 import requests
 import serpapi
+import simplet5
 
 from sentence_transformers import CrossEncoder
 from dataclasses import dataclass
@@ -37,8 +38,16 @@ def get_spacy_nlp():
     return spacy.load("en_core_web_sm")
 
 
+@st.experimental_singleton
+def get_t5_oneline_summary():
+    model = simplet5.SimpleT5()
+    model.load_model("t5","snrspeaks/t5-one-line-summary")
+    return model
+
+
 msmarco_encoder = get_msmarco_encoder()
 nlp = get_spacy_nlp()
+t5_oneline_summary = get_t5_oneline_summary()
 
 
 @st.cache(persist=True, allow_output_mutation=True)
@@ -84,7 +93,7 @@ def get_papers(question, n=10):
     return all_papers
 
 
-def compress_claim_text(question, claim_text, model):
+def compress_claim_text_finetuned(question, claim_text, model):
     prompt = prompts.fast_claim_compress_prompt.format(
         question=question, claim_text=claim_text
     )
@@ -108,7 +117,7 @@ def compress_claim_text(question, claim_text, model):
     return choices[0]["text"].strip()
 
 
-def compress_claim_text_slow(question, claim_text):
+def compress_claim_text_instruct(question, claim_text):
     prompt = prompts.claim_compress_prompt.format(
         question=question, claim_text=claim_text
     )
@@ -131,10 +140,16 @@ def compress_claim_text_slow(question, claim_text):
     return choices[0]["text"].strip()
 
 
+def compress_claim_text_t5(question, claim_text):
+    return t5_oneline_summary.predict(claim_text)
+
+
 def compress_claim(question, claim, model):
     if model == "no summarization":
         return claim.text
-    return compress_claim_text(question, claim.text, model)
+    if model == "t5-one-line-summary":
+        return compress_claim_text_t5(question, claim.paper.abstract)
+    return compress_claim_text_finetuned(question, claim.text, model)
 
 
 @dataclass(order=True)
