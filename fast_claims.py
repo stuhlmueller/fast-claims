@@ -144,17 +144,21 @@ def compress_claim_text_t5(question, claim_text):
     return t5_oneline_summary.predict(claim_text)[0]
 
 
-def compress_claim(question, claim, model):
+def compress_claim(question, claim, model, input_type):
     if model == "best sentence":
         return claim.text
-    elif model == "t5-one-line-summary (abstract)":
-        return compress_claim_text_t5(question, claim.paper.abstract)
-    elif model == "t5-one-line-summary (claim)":
-        return compress_claim_text_t5(question, claim.text)
-    elif model == "davinci-instruct-beta-v2-few-shot":
-        return compress_claim_text_instruct(question, claim.text)
+    if input_type == "best sentence":
+        input_text = claim.text
+    elif input_type == "full abstract":
+        input_text = claim.paper.abstract
     else:
-        return compress_claim_text_finetuned(question, claim.text, model)
+        raise ValueError(input_type)
+    if model == "t5-one-line-summary":
+        return compress_claim_text_t5(question, input_text)
+    elif model == "davinci-instruct-beta-v2-few-shot":
+        return compress_claim_text_instruct(question, input_text)
+    else:
+        return compress_claim_text_finetuned(question, input_text, model)
 
 
 @dataclass(order=True)
@@ -231,11 +235,20 @@ def main():
             "curie:ft-ought-1-2021-10-22-00-52-45",
             "babbage:ft-ought-1-2021-10-22-01-05-15",
             "ada:ft-ought-1-2021-10-22-00-42-58",
-            "t5-one-line-summary (abstract)",
-            "t5-one-line-summary (claim)",            
+            "t5-one-line-summary",
             "davinci-instruct-beta-v2-few-shot"
         ],
     )
+    if summarization_model != "best sentence":
+        summarization_input = st.selectbox(
+            "Summarization input",
+            options=[
+                "best sentence",
+                "full abstract"
+            ]
+        )
+    else:
+        summarization_input = "full abstract"
 
     # 6. Use the best sentence for each paper
     seen_papers = set()
@@ -243,7 +256,7 @@ def main():
         if claim.paper in seen_papers:
             continue
         short_claim = compress_claim(
-            question=question, claim=claim, model=summarization_model
+            question=question, claim=claim, model=summarization_model, input_type=summarization_input
         )
         with st.expander(short_claim):
             st.write(claim)
