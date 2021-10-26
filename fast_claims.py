@@ -232,6 +232,7 @@ def main():
         "Summarization model",
         options=[
             "best sentence",
+            "davinci:ft-ought-1-2021-10-26-18-39-48",
             "curie:ft-ought-1-2021-10-22-00-52-45",
             "babbage:ft-ought-1-2021-10-22-01-05-15",
             "ada:ft-ought-1-2021-10-22-00-42-58",
