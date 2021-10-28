@@ -116,3 +116,9 @@ Question and answer: "{question}
 fast_claim_compress_prompt = """Question: {question}
 Context: {claim_text}
 Answer:"""
+
+
+probabilistic_qa_prompt = """Question: {question}
+Paper title: {title}
+Paper abstract: {abstract}
+Abstract answers question:"""

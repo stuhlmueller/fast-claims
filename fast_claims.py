@@ -6,6 +6,7 @@ import openai
 import requests
 import serpapi
 import simplet5
+import math
 
 from sentence_transformers import CrossEncoder
 from dataclasses import dataclass
@@ -41,7 +42,7 @@ def get_spacy_nlp():
 @st.experimental_singleton
 def get_t5_oneline_summary():
     model = simplet5.SimpleT5()
-    model.load_model("t5","snrspeaks/t5-one-line-summary")
+    model.load_model("t5", "snrspeaks/t5-one-line-summary")
     return model
 
 
@@ -93,11 +94,65 @@ def get_papers(question, n=10):
     return all_papers
 
 
-def compress_claim_text_finetuned(question, claim_text, model):
-    prompt = prompts.fast_claim_compress_prompt.format(
-        question=question, claim_text=claim_text
-    )
+def lookup_prob(top_logprobs, text):
+    for element in top_logprobs:
+        key = list(element.keys())[0]
+        if key.strip() == text:
+            value = math.exp(list(element.values())[0])
+            return value
+    return None
 
+
+def probability_of_yes(logprobs):
+    top_logprobs = logprobs.get("top_logprobs")
+    p_no = lookup_prob(top_logprobs, "No")
+    if p_no is not None:
+        return 1 - p_no
+    p_yes = lookup_prob(top_logprobs, "Yes")
+    if p_yes is not None:
+        return p_yes
+    return 0.5
+
+
+def compress_claim_probabilistic_davinci(claim, question):
+    prompt = prompts.probabilistic_qa_prompt.format(
+        question=question, title=claim.paper.title, abstract=claim.paper.abstract
+    )
+    data = {
+        "model": "davinci:ft-ought-1-2021-10-28-00-50-45",
+        "prompt": prompt,
+        "max_tokens": 200,
+        "stop": ["<end>"],
+        "temperature": 0,
+        "logprobs": 1,
+    }
+    response = requests.post(
+        f"https://api.openai.com/v1/completions",
+        json=data,
+        headers=openai_headers,
+    )
+    completion_result = response.json()
+    choices = completion_result.get("choices")
+    if not choices:
+        return "Err (no choices)"
+    response_text = choices[0]["text"].strip()
+    p = probability_of_yes(choices[0]["logprobs"]) * 100
+    if response_text.startswith("No"):
+        return f"[{p:.2f}%]"
+    else:
+        try:
+            answer = response_text.split("\n")[1][len("Answer: ") :]
+        except Exception as e:
+            return f"Err ({response_text}): {e}"
+        else:
+            return f"[{p:.2f}%] {answer}"
+
+
+def compress_claim_finetuned(claim, question, input_type, model):
+    text = claim.text if input_type == "best sentence" else claim.paper.abstract
+    prompt = prompts.fast_claim_compress_prompt.format(
+        question=question, claim_text=text
+    )
     data = {
         "model": model,
         "prompt": prompt,
@@ -117,10 +172,9 @@ def compress_claim_text_finetuned(question, claim_text, model):
     return choices[0]["text"].strip()
 
 
-def compress_claim_text_instruct(question, claim_text):
-    prompt = prompts.claim_compress_prompt.format(
-        question=question, claim_text=claim_text
-    )
+def compress_claim_instruct(claim, question, input_type):
+    text = claim.text if input_type == "best sentence" else claim.paper.abstract
+    prompt = prompts.claim_compress_prompt.format(question=question, claim_text=text)
     engine = "davinci-instruct-beta-v2"
     data = {
         "prompt": prompt,
@@ -140,25 +194,9 @@ def compress_claim_text_instruct(question, claim_text):
     return choices[0]["text"].strip()
 
 
-def compress_claim_text_t5(question, claim_text):
-    return t5_oneline_summary.predict(claim_text)[0]
-
-
-def compress_claim(question, claim, model, input_type):
-    if model == "best sentence":
-        return claim.text
-    if input_type == "best sentence":
-        input_text = claim.text
-    elif input_type == "full abstract":
-        input_text = claim.paper.abstract
-    else:
-        raise ValueError(input_type)
-    if model == "t5-one-line-summary":
-        return compress_claim_text_t5(question, input_text)
-    elif model == "davinci-instruct-beta-v2-few-shot":
-        return compress_claim_text_instruct(question, input_text)
-    else:
-        return compress_claim_text_finetuned(question, input_text, model)
+def compress_claim_t5(claim, question, input_type):
+    text = claim.text if input_type == "best sentence" else claim.paper.abstract
+    return t5_oneline_summary.predict(claim.text)[0]
 
 
 @dataclass(order=True)
@@ -237,28 +275,43 @@ def main():
             "babbage:ft-ought-1-2021-10-22-01-05-15",
             "ada:ft-ought-1-2021-10-22-00-42-58",
             "t5-one-line-summary",
-            "davinci-instruct-beta-v2-few-shot"
+            "davinci-instruct-beta-v2-few-shot",
+            "probabilistic-davinci-v1",
         ],
     )
-    if summarization_model != "best sentence":
-        summarization_input = st.selectbox(
-            "Summarization input",
-            options=[
-                "best sentence",
-                "full abstract"
-            ]
-        )
+    if summarization_model == "best sentence":
+        compressor = lambda claim, question: claim.text
+    elif summarization_model == "probabilistic-davinci-v1":
+        compressor = compress_claim_probabilistic_davinci
     else:
-        summarization_input = "full abstract"
+        summarization_input = st.selectbox(
+            "Summarization input", options=["best sentence", "full abstract"]
+        )
+        if summarization_input == "best sentence":
+            input_text = claim.text
+        elif summarization_input == "full abstract":
+            input_text = claim.paper.abstract
+        else:
+            raise ValueError(summarization_input)
+        if summarization_model == "t5-one-line-summary":
+            compressor = lambda claim, question: compress_claim_t5(
+                claim, question, summarization_input
+            )
+        elif summarization_model == "davinci-instruct-beta-v2-few-shot":
+            compressor = lambda claim, question: compress_claim_instruct(
+                claim, question, summarization_input
+            )
+        else:
+            compressor = lambda claim, question: compress_claim_finetuned(
+                claim, question, summarization_input, summarization_model
+            )
 
     # 6. Use the best sentence for each paper
     seen_papers = set()
     for claim in sorted_claims:
         if claim.paper in seen_papers:
             continue
-        short_claim = compress_claim(
-            question=question, claim=claim, model=summarization_model, input_type=summarization_input
-        )
+        short_claim = compressor(claim, question)
         with st.expander(short_claim):
             st.write(claim)
             st.write(claim.paper.title)
