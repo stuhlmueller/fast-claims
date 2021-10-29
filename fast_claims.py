@@ -100,26 +100,32 @@ def lookup_prob(top_logprobs, text):
         if key.strip() == text:
             value = math.exp(list(element.values())[0])
             return value
-    return None
+    return 0.0
 
 
 def probability_of_yes(logprobs):
     top_logprobs = logprobs.get("top_logprobs")
     p_no = lookup_prob(top_logprobs, "No")
-    if p_no is not None:
-        return 1 - p_no
     p_yes = lookup_prob(top_logprobs, "Yes")
-    if p_yes is not None:
-        return p_yes
-    return 0.5
+    p_not = lookup_prob(top_logprobs, "Not")
+    p = 1 * p_yes + 0.5 * p_not / (p_yes + p_not + p_no)
+    return p
 
 
-def compress_claim_probabilistic_davinci(claim, question):
+def lines_to_enum_string(lines):
+    return "\n".join([f"{i+1}. {line.strip()}" for (i, line) in enumerate(lines)]).strip()
+
+
+def split_sentences(text):
+    return [sent.text for sent in nlp(text).sents]
+
+
+def compress_claim_probabilistic(claim, question, model):
     prompt = prompts.probabilistic_qa_prompt.format(
-        question=question, title=claim.paper.title, abstract=claim.paper.abstract
+        question=question, title=claim.paper.title, abstract_lines=lines_to_enum_string(split_sentences(claim.paper.abstract))
     )
     data = {
-        "model": "davinci:ft-ought-1-2021-10-28-00-50-45",
+        "model": model,
         "prompt": prompt,
         "max_tokens": 200,
         "stop": ["<end>"],
@@ -141,12 +147,20 @@ def compress_claim_probabilistic_davinci(claim, question):
         return f"[{p:.2f}%]"
     else:
         try:
-            answer = response_text.split("\n")[1][len("Answer: ") :]
+            answer = response_text.split("\n")[-1]
         except Exception as e:
             return f"Err ({response_text}): {e}"
         else:
             return f"[{p:.2f}%] {answer}"
 
+
+def compress_claim_probabilistic_davinci(claim, question):
+    return compress_claim_probabilistic(claim, question, model="davinci:ft-ought-1-2021-10-29-06-01-26")
+
+
+def compress_claim_probabilistic_curie(claim, question):
+    return compress_claim_probabilistic(claim, question, model="curie:ft-ought-1-2021-10-29-05-04-11")
+        
 
 def compress_claim_finetuned(claim, question, input_type, model):
     text = claim.text if input_type == "best sentence" else claim.paper.abstract
@@ -276,13 +290,16 @@ def main():
             "ada:ft-ought-1-2021-10-22-00-42-58",
             "t5-one-line-summary",
             "davinci-instruct-beta-v2-few-shot",
-            "probabilistic-davinci-v1",
+            "probabilistic-davinci-v2",
+            "probabilistic-curie-v2",            
         ],
     )
     if summarization_model == "best sentence":
         compressor = lambda claim, question: claim.text
-    elif summarization_model == "probabilistic-davinci-v1":
+    elif summarization_model == "probabilistic-davinci-v2":
         compressor = compress_claim_probabilistic_davinci
+    elif summarization_model == "probabilistic-curie-v2":
+        compressor = compress_claim_probabilistic_curie
     else:
         summarization_input = st.selectbox(
             "Summarization input", options=["best sentence", "full abstract"]

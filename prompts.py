@@ -118,7 +118,12 @@ Context: {claim_text}
 Answer:"""
 
 
-probabilistic_qa_prompt = """Question: {question}
-Paper title: {title}
-Paper abstract: {abstract}
-Abstract answers question:"""
+probabilistic_qa_prompt = """{abstract_lines}
+
+Title:
+{title}
+
+Question:
+{question}
+
+Abstract answers question (yes/no/not sure):"""
