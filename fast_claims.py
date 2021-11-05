@@ -284,6 +284,8 @@ def main():
         "Summarization model",
         options=[
             "best sentence",
+            "pfv2 (davinci)",
+            "pfv2 (curie)",            
             "davinci:ft-ought-1-2021-10-26-18-39-48",
             "curie:ft-ought-1-2021-10-22-00-52-45",
             "babbage:ft-ought-1-2021-10-22-01-05-15",
@@ -301,6 +303,10 @@ def main():
     elif summarization_model == "probabilistic-curie-v2":
         compressor = compress_claim_probabilistic_curie
     else:
+        if summarization_model == "pfv2 (davinci)":
+            summarization_model = "davinci:ft-ought-1-2021-11-05-11-56-50"
+        if summarization_model == "pfv2 (curie)":
+            summarization_model = "curie:ft-ought-1-2021-11-05-15-44-50"
         summarization_input = st.selectbox(
             "Summarization input", options=["best sentence", "full abstract"]
         )
